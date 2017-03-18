@@ -1,11 +1,18 @@
 package com.stockwatcher.client;
 
+import java.util.ArrayList;
+import java.util.Date;
+
 import com.google.gwt.core.client.EntryPoint;
 import com.google.gwt.event.dom.client.ClickEvent;
 import com.google.gwt.event.dom.client.ClickHandler;
 import com.google.gwt.event.dom.client.KeyCodes;
 import com.google.gwt.event.dom.client.KeyDownEvent;
 import com.google.gwt.event.dom.client.KeyDownHandler;
+import com.google.gwt.i18n.client.DateTimeFormat;
+import com.google.gwt.i18n.client.NumberFormat;
+import com.google.gwt.user.client.Random;
+import com.google.gwt.user.client.Timer;
 import com.google.gwt.user.client.Window;
 import com.google.gwt.user.client.ui.Button;
 import com.google.gwt.user.client.ui.FlexTable;
@@ -23,6 +30,8 @@ public class StockWatcher implements EntryPoint {
 	private TextBox newSymbolTextBox = new TextBox();
 	private Button addStockButton = new Button("Add");
 	private Label lastUpdatedLabel = new Label();
+	private ArrayList<String> stocks = new ArrayList<>();
+	private static final int REFRESH_INTERVAL = 5000;
 
 	/**
 	 * Entry point method.
@@ -33,10 +42,18 @@ public class StockWatcher implements EntryPoint {
 		stocksFlexTable.setText(0, 1, "Price");
 		stocksFlexTable.setText(0, 2, "Change");
 		stocksFlexTable.setText(0, 3, "Remove");
-
+		
+		//add styles to elements
+		stocksFlexTable.getRowFormatter().addStyleName(0, "watchListHeader");
+		stocksFlexTable.addStyleName("watchList");
+		stocksFlexTable.getCellFormatter().addStyleName(0, 1, "watchListNumericColumn");
+		stocksFlexTable.getCellFormatter().addStyleName(0, 2, "watchListNumericColumn");
+		stocksFlexTable.getCellFormatter().addStyleName(0, 3, "watchListRemoveColumn");
+		
 		// Assemble Add Stock panel.
 		addPanel.add(newSymbolTextBox);
 		addPanel.add(addStockButton);
+		addPanel.addStyleName("addPanel");
 
 		// Assemble Main panel.
 		mainPanel.add(stocksFlexTable);
@@ -48,6 +65,15 @@ public class StockWatcher implements EntryPoint {
 
 		// Move cursor focus to the input box.
 		newSymbolTextBox.setFocus(true);
+		
+		//setup timer to refresh stock info
+		Timer refreshTimer = new Timer() {
+			@Override
+			public void run() {
+				refreshWatchList();
+			}
+		};
+		refreshTimer.scheduleRepeating(REFRESH_INTERVAL);
 
 		// listen for mouse events on the Add button
 		addStockButton.addClickHandler(new ClickHandler() {
@@ -83,6 +109,92 @@ public class StockWatcher implements EntryPoint {
 		}
 		
 		newSymbolTextBox.setText("");
+		
+		//check for duplicate & don't add if found
+		if(stocks.contains(symbol)){
+			return;
+		}
+		
+		//add stock to table
+		int row = stocksFlexTable.getRowCount();
+		stocks.add(symbol);
+		
+		stocksFlexTable.setText(row, 0, symbol);
+		stocksFlexTable.setWidget(row, 2, new Label());
+		stocksFlexTable.getCellFormatter().addStyleName(row, 1, "watchListNumericColumn");
+		stocksFlexTable.getCellFormatter().addStyleName(row, 2, "watchListNumericColumn");
+		stocksFlexTable.getCellFormatter().addStyleName(row, 3, "watchListRemoveColumn");
+		
+		stocksFlexTable.setText(row, 0, symbol);
+		
+		//add a button to remove stock from table & array list
+		Button removeStockButton = new Button("x");
+		removeStockButton.addStyleDependentName("remove");
+		removeStockButton.addClickHandler(new ClickHandler() {
+			@Override
+			public void onClick(ClickEvent event) {
+				int removedIndex = stocks.indexOf(symbol);
+				stocks.remove(removedIndex);
+				stocksFlexTable.removeRow(removedIndex + 1);
+			}
+		});
+		stocksFlexTable.setWidget(row, 3, removeStockButton);
+		
+		refreshWatchList();
+	}
+
+	private void refreshWatchList() {
+		final double MAX_PRICE = 100.0;
+		final double MAX_PRICE_CHANGE = 0.02;
+		
+		StockPrice[] prices = new StockPrice[stocks.size()];
+		for(int i = 0; i < stocks.size(); ++i){
+			double price = Random.nextDouble() * MAX_PRICE;
+			double change = price * MAX_PRICE_CHANGE * (Random.nextDouble() * 2.0 - 1.0);
+			
+			prices[i] = new StockPrice(stocks.get(i), price, change);
+		}
+		updateTable(prices);
+	}
+
+	private void updateTable(StockPrice[] prices) {
+		for (int i = 0; i < prices.length; i++) {
+			updateTable(prices[i]);
+		}
+		
+		//display timestamp when last updated
+		DateTimeFormat dateFormat = DateTimeFormat.getFormat(DateTimeFormat.PredefinedFormat.DATE_TIME_MEDIUM);
+		lastUpdatedLabel.setText("Last update : " + dateFormat.format(new Date()));
+	}
+
+	private void updateTable(StockPrice stockPrice) {
+		if (!stocks.contains(stockPrice.getSymbol())) {
+			System.out.println("no match found - return");
+			return;
+		}
+		
+		int row = stocks.indexOf(stockPrice.getSymbol()) + 1;
+		
+		//format data in fields
+		String priceText = NumberFormat.getFormat("#,##0.00").format(stockPrice.getPrice());
+		NumberFormat changeFormat = NumberFormat.getFormat("+#,##0.00;-#,##0.00");
+		String changeText = changeFormat.format(stockPrice.getChange());
+		String changePercentText = changeFormat.format(stockPrice.getChangePercent());
+		
+		//insert new data into relevant fields
+		stocksFlexTable.setText(row, 1, priceText);
+		Label changeWidget = (Label)stocksFlexTable.getWidget(row, 2);
+		changeWidget.setText(changeText + " (" + changePercentText + "%)");
+		
+		//change the colour of text in the field based on value
+		String changeStyleName = "noChange";
+		if (stockPrice.getChangePercent() < -0.1f) {
+			changeStyleName = "negativeChange";
+		}else if (stockPrice.getChangePercent() > 0.1f) {
+			changeStyleName = "positiveChange";
+		}
+		
+		changeWidget.setStyleName(changeStyleName);
 	}
 
 }
